@@ -233,7 +233,14 @@ export default function CRTDisplay() {
   };
 
   return (
-    <div className="w-full h-full bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 relative">
+    <div className="w-full h-full bg-black relative">
+      {/* 해킹 오버레이 효과 */}
+      <div className="absolute top-4 right-4 z-10 text-green-500 font-mono text-xs space-y-1 opacity-70">
+        <div>[SURVEILLANCE_CAM_01]</div>
+        <div>STATUS: INTERCEPTED</div>
+        <div className="text-red-500 animate-pulse">● RECORDING</div>
+      </div>
+
       {/* 비디오 업로드 컨트롤 */}
       <div className="absolute top-4 left-4 z-10 flex gap-2">
         <input
@@ -245,24 +252,34 @@ export default function CRTDisplay() {
         />
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-green-400 border border-green-400 rounded font-mono text-sm transition-colors"
+          className="px-3 py-1.5 bg-black/80 hover:bg-black text-green-400 border border-green-500/50 font-mono text-xs transition-all hover:shadow-[0_0_10px_rgba(34,197,94,0.3)]"
         >
-          📁 Upload Video
+          [LOAD_FEED]
         </button>
         <button
           onClick={handleUrlInput}
-          className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-green-400 border border-green-400 rounded font-mono text-sm transition-colors"
+          className="px-3 py-1.5 bg-black/80 hover:bg-black text-green-400 border border-green-500/50 font-mono text-xs transition-all hover:shadow-[0_0_10px_rgba(34,197,94,0.3)]"
         >
-          🔗 URL
+          [URL_INJECT]
         </button>
         {videoUrl && (
           <button
             onClick={() => setVideoUrl("")}
-            className="px-4 py-2 bg-red-900 hover:bg-red-800 text-red-400 border border-red-400 rounded font-mono text-sm transition-colors"
+            className="px-3 py-1.5 bg-red-900/40 hover:bg-red-900/60 text-red-400 border border-red-500/50 font-mono text-xs transition-all hover:shadow-[0_0_10px_rgba(239,68,68,0.3)]"
           >
-            ✕ Clear
+            [DISCONNECT]
           </button>
         )}
+      </div>
+
+      {/* 하단 상태바 */}
+      <div className="absolute bottom-4 left-4 right-4 z-10 flex justify-between items-center text-green-500 font-mono text-[10px] opacity-60">
+        <div className="flex gap-4">
+          <span>&gt; FEED: {videoUrl ? "LIVE" : "NO_SIGNAL"}</span>
+          <span>|</span>
+          <span>ENCRYPTION: BYPASSED</span>
+        </div>
+        <div className="animate-pulse">ACCESS_GRANTED</div>
       </div>
 
       <Canvas

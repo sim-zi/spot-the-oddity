@@ -1,6 +1,16 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
+
+const CRTDisplay = dynamic(() => import("@/components/CRTDisplay"), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full flex items-center justify-center bg-black">
+      <p className="text-white">Loading 3D Display...</p>
+    </div>
+  ),
+});
 
 interface Message {
   role: "user" | "assistant";
@@ -80,11 +90,9 @@ export default function Home() {
 
   return (
     <div className="flex h-screen bg-gray-100">
-      {/* 왼쪽: 영상 영역 */}
-      <div className="flex-1 flex items-center justify-center bg-black p-8">
-        <div className="w-full max-w-4xl aspect-video bg-gray-900 rounded-lg flex items-center justify-center">
-          <p className="text-white text-lg">영상 영역 (비디오 플레이어)</p>
-        </div>
+      {/* 왼쪽: 영상 영역 - CRT 디스플레이 */}
+      <div className="flex-1 bg-gradient-to-br from-gray-900 via-black to-gray-800">
+        <CRTDisplay />
       </div>
 
       {/* 오른쪽: 채팅 UI */}

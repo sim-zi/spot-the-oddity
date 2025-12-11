@@ -32,6 +32,7 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
+  const isGeneratingRef = useRef<boolean>(false);
 
   // messages 상태가 변경될 때 ref도 업데이트
   useEffect(() => {
@@ -61,6 +62,13 @@ export default function Home() {
 
   // 새 지식 생성
   const generateNewKnowledge = async () => {
+    // 중복 호출 방지
+    if (isGeneratingRef.current) {
+      console.log("Already generating, skipping...");
+      return;
+    }
+    isGeneratingRef.current = true;
+
     // ref에서 최신 messages 가져오기 (클로저 문제 해결)
     const currentMessages = messagesRef.current;
     console.log("Generating with messages:", currentMessages.length);
@@ -251,6 +259,7 @@ export default function Home() {
     setMessages([]);
     setGeneratedKnowledge(null);
     setTimeLeft(0);
+    isGeneratingRef.current = false; // 중복 호출 방지 플래그 초기화
   };
 
   // Enter 키 처리

@@ -1,19 +1,31 @@
-import { Knowledge } from "@/types/knowledge";
-import { Liveblocks } from "@liveblocks/node";
+import { Category, Knowledge } from "@/types/knowledge";
+import { neon } from "@neondatabase/serverless";
 import { NextRequest, NextResponse } from "next/server";
 
-const liveblocks = new Liveblocks({
-  secret: process.env.LIVEBLOCKS_SECRET_KEY!,
-});
+const sql = neon(process.env.DATABASE_URL!);
 
-const ROOM_ID = "knowledge_store";
+// DB row를 Knowledge 객체로 변환
+function rowToKnowledge(row: Record<string, unknown>): Knowledge {
+  return {
+    id: row.id as string,
+    title: row.title as string,
+    category: row.category as Category,
+    description: row.description as string,
+    parentId: row.parent_id as string | null,
+    generation: row.generation as number,
+    createdAt: (row.created_at as Date).toISOString(),
+    createdBy: row.created_by as string,
+    chatLog: row.chat_log as Knowledge["chatLog"],
+    timesShown: row.times_shown as number,
+    childrenCount: row.children_count as number,
+  };
+}
 
-// 모든 지식 가져오기 헬퍼
+// 모든 지식 가져오기
 async function getAllKnowledge(): Promise<Knowledge[]> {
   try {
-    const room = await liveblocks.getRoom(ROOM_ID);
-    const data = (room.metadata.knowledgeData as string) || "[]";
-    return JSON.parse(data);
+    const rows = await sql`SELECT * FROM knowledge`;
+    return rows.map(rowToKnowledge);
   } catch {
     return [];
   }

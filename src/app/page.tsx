@@ -285,11 +285,9 @@ export default function Home() {
       <div className="min-h-screen flex flex-col items-center justify-center p-8">
         <div className="text-center max-w-2xl">
           <h1 className="text-5xl font-bold text-[var(--secondary)] mb-4 quiz-title">
-            📚 지식 전화기
+            📚 Knowledge History
           </h1>
-          <p className="text-xl text-[var(--accent)] mb-2">
-            Knowledge Telephone
-          </p>
+          <p className="text-xl text-[var(--accent)] mb-2">지식 계보 게임</p>
           <p className="text-lg text-gray-600 mb-8 leading-relaxed">
             가상의 지식을 AI에게 설명하고,
             <br />

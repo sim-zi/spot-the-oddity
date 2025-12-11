@@ -1,618 +1,552 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, useState } from "react";
-
-const CRTDisplay = dynamic(() => import("@/components/CRTDisplay"), {
-  ssr: false,
-  loading: () => (
-    <div className="w-full h-full flex items-center justify-center bg-black">
-      <p className="text-green-400 font-mono animate-pulse">
-        [LOADING SURVEILLANCE FEED...]
-      </p>
-    </div>
-  ),
-});
-
-interface Message {
-  role: "user" | "partner";
-  content: string;
-  timestamp?: number;
-}
-
-type GamePhase = "waiting" | "matching" | "matched" | "playing";
+import { getRandomKnowledge } from "@/data/seedKnowledge";
+import {
+  Category,
+  CATEGORY_INFO,
+  ChatMessage,
+  GAME_CONFIG,
+  GamePhase,
+  Knowledge,
+} from "@/types/knowledge";
+import { useEffect, useRef, useState } from "react";
 
 export default function Home() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  // 게임 상태
+  const [gamePhase, setGamePhase] = useState<GamePhase>("main");
+  const [currentKnowledge, setCurrentKnowledge] = useState<Knowledge | null>(
+    null
+  );
+  const [timeLeft, setTimeLeft] = useState(0);
+
+  // 채팅 상태
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const [isHesitating, setIsHesitating] = useState(false); // 타이핑 망설임 (썼다 지웠다)
-  const [currentTime, setCurrentTime] = useState<string>("");
-  const [gamePhase, setGamePhase] = useState<GamePhase>("waiting");
-  const [partnerName, setPartnerName] = useState<string>("");
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const pendingMessagesRef = useRef<{ text: string; delay: number }[]>([]);
-  const isProcessingRef = useRef(false);
+
+  // 결과 상태
+  const [generatedKnowledge, setGeneratedKnowledge] =
+    useState<Knowledge | null>(null);
+
+  // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const lastActivityRef = useRef<number>(Date.now());
-  const idleTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const nudgeCountRef = useRef<number>(0);
-  const [isDisconnected, setIsDisconnected] = useState(false);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const messagesRef = useRef<ChatMessage[]>([]);
 
-  // 랜덤 파트너 이름 생성
-  const generatePartnerName = useCallback(() => {
-    const adjectives = ["익명의", "수상한", "조용한", "날카로운", "호기심많은"];
-    const nouns = ["탐정", "관찰자", "분석가", "수사관", "요원"];
-    const number = Math.floor(Math.random() * 999) + 1;
-    const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-    const noun = nouns[Math.floor(Math.random() * nouns.length)];
-    return `${adj}${noun}#${number}`;
-  }, []);
-
-  // 매칭 시뮬레이션
+  // messages 상태가 변경될 때 ref도 업데이트
   useEffect(() => {
-    if (gamePhase === "waiting") {
-      const startMatchingTimer = setTimeout(() => {
-        setGamePhase("matching");
-      }, 1000);
-      return () => clearTimeout(startMatchingTimer);
-    }
+    messagesRef.current = messages;
+  }, [messages]);
 
-    if (gamePhase === "matching") {
-      const matchTime = 2000 + Math.random() * 3000; // 2-5초 사이 랜덤
-      const matchTimer = setTimeout(() => {
-        setPartnerName(generatePartnerName());
-        setGamePhase("matched");
-      }, matchTime);
-      return () => clearTimeout(matchTimer);
-    }
-
-    if (gamePhase === "matched") {
-      const playTimer = setTimeout(() => {
-        setGamePhase("playing");
-        // 파트너 첫 인사는 바로 하지 않고, 사용자가 먼저 말 걸 기회를 줌
-        // 일정 시간 후에도 사용자가 말이 없으면 그때 파트너가 먼저 인사
-        lastActivityRef.current = Date.now();
-      }, 1500);
-      return () => clearTimeout(playTimer);
-    }
-  }, [gamePhase, generatePartnerName]);
-
-  // 파트너 첫 인사 (사용자가 먼저 말 안 걸었을 때)
-  const sendPartnerGreeting = async () => {
-    if (messages.length > 0) return; // 이미 대화가 시작됐으면 스킵
-
+  // AI 봇 첫 인사
+  const sendBotGreeting = async () => {
     setIsTyping(true);
+    await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1000));
+
     const greetings = [
-      ["안녕하세요"],
-      ["안녕하세요!", "혹시 뭐 보이세요?"],
-      ["오 안녕하세요"],
-      ["반가워요", "뭐 발견하신 거 있어요?"],
-      ["안녕하세요", "같이 찾아봐요"],
+      "안녕하세요! 오늘은 어떤 지식을 알려주실 건가요?",
+      "반가워요! 새로운 걸 배울 준비가 됐어요.",
+      "안녕하세요~ 무엇에 대해 설명해주실 건가요?",
     ];
-    const greeting = greetings[Math.floor(Math.random() * greetings.length)];
 
-    for (let i = 0; i < greeting.length; i++) {
-      const msg = greeting[i];
-      // 첫 메시지는 좀 더 기다림, 이후 메시지는 자연스러운 간격
-      const delay =
-        i === 0 ? 1000 + Math.random() * 1500 : 1500 + Math.random() * 2000;
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      setMessages((prev) => [...prev, { role: "partner", content: msg }]);
-
-      // 다음 메시지 전 타이핑 멈춤 효과
-      if (i < greeting.length - 1) {
-        setIsTyping(false);
-        await new Promise((resolve) =>
-          setTimeout(resolve, 400 + Math.random() * 600)
-        );
-        setIsTyping(true);
-      }
-    }
+    setMessages([
+      {
+        role: "bot",
+        content: greetings[Math.floor(Math.random() * greetings.length)],
+        timestamp: Date.now(),
+      },
+    ]);
     setIsTyping(false);
   };
 
-  // 파트너가 먼저 말 걸기 (오래 대화가 없을 때)
-  const sendPartnerNudge = async () => {
-    if (isProcessingRef.current || isTyping || isDisconnected) return;
+  // 새 지식 생성
+  const generateNewKnowledge = async () => {
+    // ref에서 최신 messages 가져오기 (클로저 문제 해결)
+    const currentMessages = messagesRef.current;
+    console.log("Generating with messages:", currentMessages.length);
 
-    // 아직 대화가 시작되지 않았으면 첫 인사로 처리
-    if (messages.length === 0) {
-      await sendPartnerGreeting();
-      return;
-    }
-
-    nudgeCountRef.current += 1;
-
-    // 2-3번 넛지 후에도 반응 없으면 파트너가 나감
-    if (nudgeCountRef.current >= 2 + Math.floor(Math.random() * 2)) {
-      await sendPartnerDisconnect();
-      return;
-    }
-
-    const nudges = [
-      ["혹시 뭐 보이세요?"],
-      ["어디 보고 계세요?"],
-      ["저 여기 뭔가 이상한 거 같은데..."],
-      ["뭔가 발견하신 거 있어요?"],
-      ["음...", "저쪽 살펴봐요"],
-      ["계세요?"],
-    ];
-    const nudge = nudges[Math.floor(Math.random() * nudges.length)];
-
-    setIsTyping(true);
-    isProcessingRef.current = true;
-
-    for (let i = 0; i < nudge.length; i++) {
-      const msg = nudge[i];
-      const delay =
-        i === 0 ? 1500 + Math.random() * 2000 : 1000 + Math.random() * 1500;
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      setMessages((prev) => [...prev, { role: "partner", content: msg }]);
-
-      if (i < nudge.length - 1) {
-        setIsTyping(false);
-        await new Promise((resolve) =>
-          setTimeout(resolve, 400 + Math.random() * 600)
-        );
-        setIsTyping(true);
-      }
-    }
-
-    setIsTyping(false);
-    isProcessingRef.current = false;
-    lastActivityRef.current = Date.now();
-  };
-
-  // 파트너 연결 종료 (오랫동안 답장 없을 때)
-  const sendPartnerDisconnect = async () => {
-    if (isDisconnected) return;
-
-    const farewells = [
-      ["음...", "저 먼저 나갈게요"],
-      ["답장이 없으시네요", "다음에 또 해요"],
-      ["혼자 하기 힘드네요...", "다른 파트너 찾아볼게요"],
-      ["저 나갈게요", "수고하세요"],
-      ["...", "나갑니다"],
-    ];
-    const farewell = farewells[Math.floor(Math.random() * farewells.length)];
-
-    setIsTyping(true);
-    isProcessingRef.current = true;
-
-    for (let i = 0; i < farewell.length; i++) {
-      const msg = farewell[i];
-      const delay =
-        i === 0 ? 2000 + Math.random() * 2000 : 1500 + Math.random() * 1500;
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      setMessages((prev) => [...prev, { role: "partner", content: msg }]);
-
-      if (i < farewell.length - 1) {
-        setIsTyping(false);
-        await new Promise((resolve) =>
-          setTimeout(resolve, 500 + Math.random() * 800)
-        );
-        setIsTyping(true);
-      }
-    }
-
-    setIsTyping(false);
-    isProcessingRef.current = false;
-
-    // 잠시 후 연결 종료 표시
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    setIsDisconnected(true);
-
-    // 타이머 정리
-    if (idleTimerRef.current) {
-      clearInterval(idleTimerRef.current);
-    }
-  };
-
-  // 활동 없음 감지 및 파트너 넛지 트리거
-  useEffect(() => {
-    if (gamePhase !== "playing") return;
-
-    const checkIdle = () => {
-      const timeSinceLastActivity = Date.now() - lastActivityRef.current;
-      // 15-40초 사이 랜덤 (대화 컨텍스트에 따라 자연스럽게)
-      const idleThreshold = 15000 + Math.random() * 25000;
-
-      if (timeSinceLastActivity > idleThreshold && !isProcessingRef.current) {
-        sendPartnerNudge();
-      }
-    };
-
-    // 10초마다 체크
-    idleTimerRef.current = setInterval(checkIdle, 10000);
-
-    return () => {
-      if (idleTimerRef.current) {
-        clearInterval(idleTimerRef.current);
-      }
-    };
-  }, [gamePhase, isTyping]);
-
-  useEffect(() => {
-    const updateTime = () => {
-      setCurrentTime(new Date().toLocaleTimeString());
-    };
-    updateTime();
-    const timer = setInterval(updateTime, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, isTyping]);
-
-  const sendMessage = async () => {
-    if (!input.trim() || gamePhase !== "playing") return;
-
-    const now = Date.now();
-    const userMessage: Message = {
-      role: "user",
-      content: input,
-      timestamp: now,
-    };
-    const userInput = input;
-
-    // 이전 사용자 메시지와의 간격 계산
-    const lastUserMessage = [...messages]
-      .reverse()
-      .find((m) => m.role === "user");
-    const timeSinceLastMessage = lastUserMessage?.timestamp
-      ? now - lastUserMessage.timestamp
-      : null;
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    lastActivityRef.current = now; // 활동 시간 갱신
-    nudgeCountRef.current = 0; // 넛지 카운트 리셋
-
-    // 사용자가 끼어들면 현재 진행 중인 파트너 메시지 큐를 비움
-    if (isProcessingRef.current) {
-      pendingMessagesRef.current = [];
-      // 잠시 후 새 응답 시작 (파트너가 끊기고 새로 반응하는 느낌)
-    }
-
-    // 파트너 응답을 비동기로 처리 (입력 차단 없음)
-    processPartnerResponse(userInput, timeSinceLastMessage);
-  };
-
-  const processPartnerResponse = async (
-    userInput: string,
-    timeSinceLastMessage: number | null
-  ) => {
     try {
-      // 랜덤 딜레이 후 타이핑 표시
-      const thinkingDelay = 800 + Math.random() * 2500;
-      await new Promise((resolve) => setTimeout(resolve, thinkingDelay));
-
-      // 이미 새 메시지가 들어왔으면 (끼어들기) 현재 응답 중단 체크
-      setIsTyping(true);
-
-      const response = await fetch("/api/chat", {
+      const response = await fetch("/api/generate", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: userInput,
-          history: messages,
-          timeSinceLastMessage, // 이전 메시지와의 간격 (ms)
+          originalKnowledge: currentKnowledge,
+          chatLog: currentMessages,
         }),
       });
 
       const data = await response.json();
 
-      if (data.messages && Array.isArray(data.messages)) {
-        pendingMessagesRef.current = [...data.messages];
-        isProcessingRef.current = true;
+      if (data.knowledge) {
+        setGeneratedKnowledge(data.knowledge);
 
-        // 메시지 큐 처리
-        while (pendingMessagesRef.current.length > 0) {
-          const msg = pendingMessagesRef.current[0];
-
-          // 가끔 망설임 효과 (15% 확률, 첫 메시지나 긴 메시지에서)
-          const shouldHesitate =
-            Math.random() < 0.15 &&
-            (pendingMessagesRef.current.length === data.messages.length || // 첫 메시지
-              msg.text.length > 15); // 긴 메시지
-
-          if (shouldHesitate) {
-            // 타이핑 시작 → 멈춤 → 다시 타이핑 (썼다 지웠다)
-            setIsTyping(true);
-            await new Promise((resolve) =>
-              setTimeout(resolve, 800 + Math.random() * 1200)
-            );
-            setIsTyping(false);
-            setIsHesitating(true);
-            await new Promise((resolve) =>
-              setTimeout(resolve, 1500 + Math.random() * 2000)
-            );
-            setIsHesitating(false);
-            setIsTyping(true);
-            await new Promise((resolve) =>
-              setTimeout(resolve, 500 + Math.random() * 800)
-            );
+        // DB에 새 지식 저장
+        try {
+          const saveResponse = await fetch("/api/knowledge", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data.knowledge),
+          });
+          const saveResult = await saveResponse.json();
+          console.log("Save result:", saveResult);
+          if (!saveResponse.ok) {
+            console.error("Save failed:", saveResult);
           }
-
-          // 메시지 전 딜레이
-          const baseDelay = msg.delay || 1500;
-          const randomVariation = Math.random() * 800 - 400;
-          await new Promise((resolve) =>
-            setTimeout(resolve, Math.max(600, baseDelay + randomVariation))
-          );
-
-          // 큐가 비워졌으면 (끼어들기로 인해) 중단
-          if (pendingMessagesRef.current.length === 0) break;
-
-          // 메시지 표시
-          pendingMessagesRef.current.shift();
-          setMessages((prev) => [
-            ...prev,
-            { role: "partner", content: msg.text },
-          ]);
-
-          // 다음 메시지가 있으면 타이핑 효과
-          if (pendingMessagesRef.current.length > 0) {
-            setIsTyping(false);
-            await new Promise((resolve) =>
-              setTimeout(resolve, 300 + Math.random() * 700)
-            );
-            setIsTyping(true);
-          }
+        } catch (saveError) {
+          console.error("Error saving to DB:", saveError);
         }
-
-        isProcessingRef.current = false;
-        lastActivityRef.current = Date.now(); // 파트너 응답 후 활동 시간 갱신
       }
     } catch (error) {
-      console.error("Error sending message:", error);
-      setMessages((prev) => [
-        ...prev,
-        { role: "partner", content: "...연결이 불안정해요" },
-      ]);
-    } finally {
-      setIsTyping(false);
-      isProcessingRef.current = false;
+      console.error("Error generating knowledge:", error);
+      // 에러 시 임시 결과
+      setGeneratedKnowledge({
+        ...currentKnowledge!,
+        id: `gen-${Date.now()}`,
+        title: currentKnowledge!.title + " (변형)",
+        description: "새로운 지식 생성에 실패했습니다.",
+        parentId: currentKnowledge!.id,
+        generation: currentKnowledge!.generation + 1,
+      });
+    }
+
+    setGamePhase("result");
+  };
+
+  // 타이머 관리
+  useEffect(() => {
+    if (gamePhase === "reading" || gamePhase === "chatting") {
+      timerRef.current = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current!);
+            if (gamePhase === "reading") {
+              setGamePhase("chatting");
+              setTimeLeft(GAME_CONFIG.CHATTING_TIME);
+              // AI 봇 첫 인사
+              sendBotGreeting();
+            } else if (gamePhase === "chatting") {
+              setGamePhase("generating");
+              generateNewKnowledge();
+            }
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gamePhase]);
+
+  // 스크롤 관리
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isTyping]);
+
+  // 게임 시작
+  const startGame = () => {
+    setGamePhase("category");
+  };
+
+  // 카테고리 선택 - DB에서 지식도 가져옴
+  const selectCategory = async (category: Category) => {
+    setGamePhase("loading"); // 로딩 상태 추가
+
+    try {
+      // DB에서 해당 카테고리의 지식 가져오기
+      const response = await fetch(`/api/knowledge?category=${category}`);
+      const data = await response.json();
+      const dbKnowledge: Knowledge[] = data.knowledge || [];
+
+      // 시드 지식 가져오기
+      const seedKnowledge = getRandomKnowledge(category);
+
+      // 시드 + DB 지식 합치기
+      const allKnowledge = [seedKnowledge, ...dbKnowledge];
+
+      // 랜덤 선택
+      const selected =
+        allKnowledge[Math.floor(Math.random() * allKnowledge.length)];
+
+      console.log(
+        `Selected knowledge from ${allKnowledge.length} options (${dbKnowledge.length} from DB)`
+      );
+
+      setCurrentKnowledge(selected);
+      setTimeLeft(GAME_CONFIG.READING_TIME);
+      setGamePhase("reading");
+    } catch (error) {
+      console.error("Error fetching knowledge:", error);
+      // 실패 시 시드 지식으로 폴백
+      const fallback = getRandomKnowledge(category);
+      setCurrentKnowledge(fallback);
+      setTimeLeft(GAME_CONFIG.READING_TIME);
+      setGamePhase("reading");
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  // 메시지 전송
+  const sendMessage = async () => {
+    if (!input.trim() || gamePhase !== "chatting") return;
+
+    const userMessage: ChatMessage = {
+      role: "user",
+      content: input.trim(),
+      timestamp: Date.now(),
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+    setInput("");
+
+    // AI 응답
+    await processBotResponse(userMessage.content);
+  };
+
+  // AI 봇 응답 처리
+  const processBotResponse = async (userInput: string) => {
+    setIsTyping(true);
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: userInput,
+          history: messages,
+          knowledge: currentKnowledge,
+        }),
+      });
+
+      const data = await response.json();
+
+      // 응답 딜레이
+      await new Promise((r) => setTimeout(r, 800 + Math.random() * 1500));
+
+      if (data.message) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "bot",
+            content: data.message,
+            timestamp: Date.now(),
+          },
+        ]);
+      }
+    } catch (error) {
+      console.error("Error:", error);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  // 다시 하기
+  const resetGame = () => {
+    setGamePhase("main");
+    setCurrentKnowledge(null);
+    setMessages([]);
+    setGeneratedKnowledge(null);
+    setTimeLeft(0);
+  };
+
+  // Enter 키 처리
+  const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
   };
 
-  // 매칭 화면 렌더링
-  const renderMatchingOverlay = () => {
-    if (gamePhase === "waiting" || gamePhase === "matching") {
-      return (
-        <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-50">
-          <div className="text-green-400 font-mono text-center">
-            <div className="text-xl mb-4">
-              {gamePhase === "waiting" ? "접속 중..." : "파트너 찾는 중..."}
-            </div>
-            <div className="flex gap-1 justify-center">
-              <span className="animate-bounce delay-0">.</span>
-              <span className="animate-bounce delay-100">.</span>
-              <span className="animate-bounce delay-200">.</span>
-            </div>
-            <div className="text-xs text-green-600 mt-4">
-              익명의 플레이어와 매칭됩니다
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    if (gamePhase === "matched") {
-      return (
-        <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-50">
-          <div className="text-green-400 font-mono text-center">
-            <div className="text-lg mb-2">매칭 완료!</div>
-            <div className="text-xl text-green-300 mb-4">{partnerName}</div>
-            <div className="text-xs text-green-600">게임을 시작합니다...</div>
-          </div>
-        </div>
-      );
-    }
-
-    return null;
+  // 타이머 포맷
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // 연결 종료 오버레이 렌더링
-  const renderDisconnectOverlay = () => {
-    if (!isDisconnected) return null;
+  // ========== 렌더링 ==========
 
-    const handleNewGame = () => {
-      // 상태 초기화
-      setMessages([]);
-      setInput("");
-      setIsTyping(false);
-      setIsDisconnected(false);
-      setPartnerName("");
-      nudgeCountRef.current = 0;
-      lastActivityRef.current = Date.now();
-      isProcessingRef.current = false;
-      pendingMessagesRef.current = [];
-      // 새 매칭 시작
-      setGamePhase("waiting");
-    };
-
+  // 메인 화면
+  if (gamePhase === "main") {
     return (
-      <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-50 backdrop-blur-sm">
-        <div className="text-center">
-          <div className="text-red-400 font-mono text-lg mb-2">
-            [CONNECTION TERMINATED]
-          </div>
-          <div className="text-gray-400 font-mono text-sm mb-6">
-            {partnerName}님이 연결을 종료했습니다
-          </div>
+      <div className="min-h-screen flex flex-col items-center justify-center p-8">
+        <div className="text-center max-w-2xl">
+          <h1 className="text-5xl font-bold text-[var(--secondary)] mb-4 quiz-title">
+            📚 지식 전화기
+          </h1>
+          <p className="text-xl text-[var(--accent)] mb-2">
+            Knowledge Telephone
+          </p>
+          <p className="text-lg text-gray-600 mb-8 leading-relaxed">
+            가상의 지식을 AI에게 설명하고,
+            <br />
+            새롭게 탄생하는 지식을 확인하세요!
+          </p>
+
           <button
-            onClick={handleNewGame}
-            className="px-6 py-3 bg-green-600/40 text-green-400 border border-green-500/50 rounded-lg font-mono hover:bg-green-600/60 hover:shadow-[0_0_20px_rgba(34,197,94,0.4)] transition-all"
+            onClick={startGame}
+            className="btn-gold px-12 py-4 text-xl mb-6"
           >
-            새 파트너 찾기
+            🎮 게임 시작
           </button>
+
+          <div className="mt-8">
+            <a
+              href="/history"
+              className="text-[var(--secondary)] underline hover:text-[var(--primary)]"
+            >
+              📖 지식 계보 보기
+            </a>
+          </div>
         </div>
       </div>
     );
-  };
+  }
 
-  return (
-    <div className="flex h-screen bg-black relative overflow-hidden">
-      {/* 매칭 오버레이 */}
-      {renderMatchingOverlay()}
-
-      {/* 연결 종료 오버레이 */}
-      {renderDisconnectOverlay()}
-
-      {/* 배경 노이즈 효과 */}
-      <div className="absolute inset-0 opacity-5 pointer-events-none">
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-green-500/10 to-transparent animate-scan"></div>
-      </div>
-
-      {/* 왼쪽: 영상 영역 - CRT 디스플레이 */}
-      <div className="flex-1 bg-black relative">
-        <CRTDisplay />
-      </div>
-
-      {/* 오른쪽: 채팅 UI */}
-      <div className="w-96 bg-black border-l-2 border-green-500/30 flex flex-col relative">
-        {/* 스캔라인 효과 */}
-        <div className="absolute inset-0 pointer-events-none opacity-10">
-          <div
-            className="absolute inset-0"
-            style={{
-              backgroundImage: `repeating-linear-gradient(
-                0deg,
-                transparent,
-                transparent 2px,
-                rgba(0, 255, 0, 0.03) 2px,
-                rgba(0, 255, 0, 0.03) 4px
-              )`,
-            }}
-          ></div>
-        </div>
-
-        {/* 헤더 */}
-        <div className="p-4 border-b border-green-500/30 bg-black/80 backdrop-blur-sm">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <div
-                className={`w-2 h-2 rounded-full ${
-                  gamePhase === "playing" ? "bg-green-500" : "bg-yellow-500"
-                } animate-pulse`}
-              ></div>
-              <span
-                className={`font-mono text-xs ${
-                  gamePhase === "playing" ? "text-green-500" : "text-yellow-500"
-                }`}
-              >
-                {gamePhase === "playing" ? "● CONNECTED" : "● CONNECTING"}
-              </span>
-            </div>
-            <div className="text-green-400 font-mono text-xs">
-              {currentTime || "--:--:--"}
-            </div>
-          </div>
-          <h2 className="text-lg font-mono text-green-400 tracking-wider">
-            {gamePhase === "playing" ? partnerName : "매칭 대기 중..."}
+  // 지식 로딩 화면
+  if (gamePhase === "loading") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-8">
+        <div className="text-center">
+          <div className="text-6xl mb-6 animate-bounce">📚</div>
+          <h2 className="text-2xl font-bold text-[var(--secondary)] mb-4">
+            지식을 찾고 있어요...
           </h2>
-          <p className="text-xs text-green-500/70 font-mono mt-1">
-            {gamePhase === "playing"
-              ? "협동 영상 분석 중"
-              : "파트너를 찾고 있습니다"}
+          <p className="text-gray-500">
+            DB에서 흥미로운 지식을 가져오는 중입니다
           </p>
         </div>
+      </div>
+    );
+  }
 
-        {/* 채팅 메시지 영역 */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-black/50">
-          {messages.map((msg, idx) => (
-            <div
-              key={idx}
-              className={`flex ${
-                msg.role === "user" ? "justify-end" : "justify-start"
-              }`}
+  // 카테고리 선택 화면
+  if (gamePhase === "category") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-8">
+        <h2 className="text-3xl font-bold text-[var(--secondary)] mb-8">
+          주제를 선택하세요
+        </h2>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-w-3xl">
+          {(Object.keys(CATEGORY_INFO) as Category[]).map((cat) => (
+            <button
+              key={cat}
+              onClick={() => selectCategory(cat)}
+              className="category-card"
             >
-              <div
-                className={`px-3 py-2 max-w-[80%] rounded-lg ${
-                  msg.role === "user"
-                    ? "bg-green-600/30 text-green-200 rounded-br-none"
-                    : "bg-gray-800/80 text-gray-200 rounded-bl-none"
-                }`}
-              >
-                <p className="text-sm whitespace-pre-wrap leading-relaxed">
-                  {msg.content}
-                </p>
-              </div>
-            </div>
+              <span className="text-4xl mb-2 block">
+                {CATEGORY_INFO[cat].emoji}
+              </span>
+              <span className="text-lg font-medium">
+                {CATEGORY_INFO[cat].label}
+              </span>
+            </button>
           ))}
-          {/* 타이핑 인디케이터 */}
-          {isTyping && (
-            <div className="flex justify-start">
-              <div className="bg-gray-800/80 text-gray-400 rounded-lg rounded-bl-none px-3 py-2">
-                <div className="flex gap-1">
-                  <span className="animate-bounce text-xs">●</span>
-                  <span
-                    className="animate-bounce text-xs"
-                    style={{ animationDelay: "0.1s" }}
-                  >
-                    ●
-                  </span>
-                  <span
-                    className="animate-bounce text-xs"
-                    style={{ animationDelay: "0.2s" }}
-                  >
-                    ●
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-          {/* 망설임 인디케이터 (썼다 지웠다) */}
-          {isHesitating && !isTyping && (
-            <div className="flex justify-start">
-              <div className="bg-gray-800/60 text-gray-500 rounded-lg rounded-bl-none px-3 py-2 italic text-xs">
-                <span className="opacity-60">입력 중단됨...</span>
-              </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
         </div>
 
-        {/* 입력 영역 */}
-        <div className="p-4 border-t border-green-500/30 bg-black/80 backdrop-blur-sm">
+        <button
+          onClick={() => setGamePhase("main")}
+          className="mt-8 text-gray-500 hover:text-gray-700"
+        >
+          ← 돌아가기
+        </button>
+      </div>
+    );
+  }
+
+  // 지식 읽기 화면
+  if (gamePhase === "reading" && currentKnowledge) {
+    return (
+      <div className="min-h-screen flex flex-col items-center p-8">
+        <div className="w-full max-w-3xl">
+          {/* 타이머 */}
+          <div className="text-center mb-6">
+            <p className="text-sm text-gray-500 mb-1">읽기 시간</p>
+            <p className={`timer ${timeLeft <= 5 ? "timer-urgent" : ""}`}>
+              {formatTime(timeLeft)}
+            </p>
+          </div>
+
+          {/* 지식 카드 */}
+          <div className="encyclopedia-page">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-2xl">
+                {CATEGORY_INFO[currentKnowledge.category].emoji}
+              </span>
+              <span className="text-sm text-gray-500">
+                {CATEGORY_INFO[currentKnowledge.category].label}
+              </span>
+            </div>
+
+            <h1 className="text-3xl font-bold text-[var(--secondary)] mb-6">
+              {currentKnowledge.title}
+            </h1>
+
+            <div className="encyclopedia-text text-lg whitespace-pre-line">
+              {currentKnowledge.description}
+            </div>
+          </div>
+
+          <p className="text-center text-gray-500 mt-6">
+            ⏳ 시간이 지나면 자동으로 채팅이 시작됩니다
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // 채팅 화면
+  if (gamePhase === "chatting" && currentKnowledge) {
+    return (
+      <div className="min-h-screen flex flex-col p-4 md:p-8">
+        <div className="w-full max-w-2xl mx-auto flex flex-col h-[calc(100vh-4rem)]">
+          {/* 헤더 */}
+          <div className="flex justify-between items-center mb-4 pb-4 border-b">
+            <div>
+              <h2 className="font-bold text-[var(--secondary)]">
+                {currentKnowledge.title}
+              </h2>
+              <p className="text-sm text-gray-500">
+                이 지식을 AI에게 설명하세요
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-sm text-gray-500">남은 시간</p>
+              <p
+                className={`timer text-2xl ${
+                  timeLeft <= 10 ? "timer-urgent" : ""
+                }`}
+              >
+                {formatTime(timeLeft)}
+              </p>
+            </div>
+          </div>
+
+          {/* 채팅 영역 */}
+          <div className="flex-1 overflow-y-auto mb-4 space-y-3">
+            {messages.map((msg, idx) => (
+              <div
+                key={idx}
+                className={`flex ${
+                  msg.role === "user" ? "justify-end" : "justify-start"
+                }`}
+              >
+                <div
+                  className={`max-w-[80%] px-4 py-2 ${
+                    msg.role === "user" ? "chat-bubble-user" : "chat-bubble-bot"
+                  }`}
+                >
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+
+            {isTyping && (
+              <div className="flex justify-start">
+                <div className="chat-bubble-bot px-4 py-2">
+                  <span className="animate-pulse">입력 중...</span>
+                </div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* 입력 영역 */}
           <div className="flex gap-2">
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder={
-                gamePhase === "playing" ? "메시지 입력..." : "매칭 대기 중..."
-              }
-              className="flex-1 px-3 py-2 bg-gray-900/80 border border-green-500/40 text-gray-200 rounded-lg text-sm focus:outline-none focus:border-green-500 focus:shadow-[0_0_10px_rgba(34,197,94,0.3)] placeholder-gray-500"
-              disabled={gamePhase !== "playing"}
+              placeholder="지식에 대해 설명해주세요..."
+              className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-[var(--primary)] focus:outline-none"
             />
             <button
               onClick={sendMessage}
-              disabled={!input.trim() || gamePhase !== "playing"}
-              className="px-4 py-2 bg-green-600/40 text-green-400 border border-green-500/50 rounded-lg text-sm hover:bg-green-600/60 hover:shadow-[0_0_15px_rgba(34,197,94,0.4)] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              disabled={!input.trim()}
+              className="btn-gold px-6 py-3 disabled:opacity-50"
             >
               전송
             </button>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  // 생성 중 화면
+  if (gamePhase === "generating") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-8">
+        <div className="text-center">
+          <div className="text-6xl mb-6 loading-book">📖</div>
+          <h2 className="text-2xl font-bold text-[var(--secondary)] mb-4">
+            새로운 지식 생성 중...
+          </h2>
+          <p className="text-gray-500">
+            AI가 당신의 설명을 바탕으로 새로운 지식을 만들고 있습니다
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // 결과 화면
+  if (gamePhase === "result" && currentKnowledge && generatedKnowledge) {
+    return (
+      <div className="min-h-screen p-4 md:p-8">
+        <div className="max-w-5xl mx-auto">
+          <h2 className="text-3xl font-bold text-center text-[var(--secondary)] mb-8">
+            🎉 새로운 지식이 탄생했습니다!
+          </h2>
+
+          <div className="grid md:grid-cols-2 gap-8">
+            {/* 원본 지식 */}
+            <div className="encyclopedia-page">
+              <p className="text-sm text-gray-500 mb-2">📜 원본 지식</p>
+              <h3 className="text-xl font-bold text-[var(--secondary)] mb-4">
+                {currentKnowledge.title}
+              </h3>
+              <p className="encyclopedia-text text-sm">
+                {currentKnowledge.description}
+              </p>
+            </div>
+
+            {/* 새 지식 */}
+            <div className="encyclopedia-page border-[var(--primary)]">
+              <p className="text-sm text-[var(--primary)] mb-2">
+                ✨ 새로 탄생한 지식
+              </p>
+              <h3 className="text-xl font-bold text-[var(--secondary)] mb-4">
+                {generatedKnowledge.title}
+              </h3>
+              <p className="encyclopedia-text text-sm">
+                {generatedKnowledge.description}
+              </p>
+            </div>
+          </div>
+
+          <div className="text-center mt-8 space-x-4">
+            <button onClick={resetGame} className="btn-gold px-8 py-3">
+              🔄 다시 하기
+            </button>
+            <a
+              href="/history"
+              className="inline-block px-8 py-3 border-2 border-[var(--secondary)] text-[var(--secondary)] rounded-lg hover:bg-[var(--secondary)] hover:text-white transition-colors"
+            >
+              📖 지식 계보 보기
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
 }

@@ -13,6 +13,7 @@
     "@liveblocks/client": "^3.11.1",
     "@liveblocks/node": "^3.11.1",
     "@liveblocks/react": "^3.11.1",
+    "@neondatabase/serverless": "^1.0.2",
     "@react-three/drei": "^10.7.6",
     "@react-three/fiber": "^9.4.0",
     "@vercel/blob": "^2.0.0",

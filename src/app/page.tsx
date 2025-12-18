@@ -177,9 +177,7 @@ export default function Home() {
       const selected =
         allKnowledge[Math.floor(Math.random() * allKnowledge.length)];
 
-      console.log(
-        `Selected knowledge from ${allKnowledge.length} options`
-      );
+      console.log(`Selected knowledge from ${allKnowledge.length} options`);
 
       setCurrentKnowledge(selected);
       setGamePhase("intro-reading");
@@ -292,7 +290,6 @@ export default function Home() {
           <h1 className="text-4xl font-semibold text-[var(--secondary)] mb-4 quiz-title">
             Knowledge History
           </h1>
-          <p className="text-lg text-[var(--accent)] mb-2">지식 계보 게임</p>
           <p className="text-base text-gray-500 mb-10 leading-relaxed">
             지식을 AI에게 설명하고,
             <br />
@@ -306,12 +303,12 @@ export default function Home() {
             시작하기
           </button>
 
-          <div className="mt-8">
+          <div className="mt-8 flex flex-col items-center gap-3">
             <a
-              href="/history"
-              className="text-[var(--muted)] hover:text-[var(--secondary)] transition-colors"
+              href="/about"
+              className="text-sm text-[var(--muted)] hover:text-[var(--secondary)] transition-colors"
             >
-              지식 계보 보기 →
+              이 작품에 대하여
             </a>
           </div>
         </div>

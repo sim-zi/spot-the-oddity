@@ -270,40 +270,45 @@ export async function DELETE(request: NextRequest) {
     // 고아 노드 정리 (시드에 연결되지 않은 노드들 삭제)
     if (cleanOrphans === "true") {
       // 모든 지식 가져오기
-      const allKnowledge = await sql`SELECT id, parent_id, generation FROM knowledge`;
-      
+      const allKnowledge =
+        await sql`SELECT id, parent_id, generation FROM knowledge`;
+
       // 시드(generation=0)에서 시작해서 연결된 모든 노드 찾기
       const connectedIds = new Set<string>();
-      
+
       // DB의 시드 노드들 (generation=0) 추가
-      allKnowledge.forEach(k => {
+      allKnowledge.forEach((k) => {
         if (k.generation === 0) {
           connectedIds.add(k.id as string);
         }
       });
-      
+
       // BFS로 연결된 노드들 찾기
       let changed = true;
       while (changed) {
         changed = false;
-        allKnowledge.forEach(k => {
-          if (!connectedIds.has(k.id as string) && k.parent_id && connectedIds.has(k.parent_id as string)) {
+        allKnowledge.forEach((k) => {
+          if (
+            !connectedIds.has(k.id as string) &&
+            k.parent_id &&
+            connectedIds.has(k.parent_id as string)
+          ) {
             connectedIds.add(k.id as string);
             changed = true;
           }
         });
       }
-      
+
       // 연결되지 않은 고아 노드들 찾기
       const orphanIds = allKnowledge
-        .filter(k => !connectedIds.has(k.id as string))
-        .map(k => k.id as string);
-      
+        .filter((k) => !connectedIds.has(k.id as string))
+        .map((k) => k.id as string);
+
       if (orphanIds.length > 0) {
         // 고아 노드들 삭제
         await sql`DELETE FROM knowledge WHERE id = ANY(${orphanIds})`;
       }
-      
+
       return NextResponse.json({
         success: true,
         deletedCount: orphanIds.length,

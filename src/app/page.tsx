@@ -1,6 +1,5 @@
 "use client";
 
-import { getRandomKnowledge } from "@/data/seedKnowledge";
 import {
   Category,
   CATEGORY_INFO,
@@ -128,10 +127,7 @@ export default function Home() {
           if (prev <= 1) {
             clearInterval(timerRef.current!);
             if (gamePhase === "reading") {
-              setGamePhase("chatting");
-              setTimeLeft(GAME_CONFIG.CHATTING_TIME);
-              // AI 봇 첫 인사
-              sendBotGreeting();
+              setGamePhase("intro-chatting");
             } else if (gamePhase === "chatting") {
               setGamePhase("generating");
               generateNewKnowledge();
@@ -166,36 +162,45 @@ export default function Home() {
     setGamePhase("loading"); // 로딩 상태 추가
 
     try {
-      // DB에서 해당 카테고리의 지식 가져오기
+      // DB에서 해당 카테고리의 지식 가져오기 (시드 포함)
       const response = await fetch(`/api/knowledge?category=${category}`);
       const data = await response.json();
-      const dbKnowledge: Knowledge[] = data.knowledge || [];
+      const allKnowledge: Knowledge[] = data.knowledge || [];
 
-      // 시드 지식 가져오기
-      const seedKnowledge = getRandomKnowledge(category);
-
-      // 시드 + DB 지식 합치기
-      const allKnowledge = [seedKnowledge, ...dbKnowledge];
+      if (allKnowledge.length === 0) {
+        alert("지식이 없습니다. 잠시 후 다시 시도해주세요.");
+        setGamePhase("category");
+        return;
+      }
 
       // 랜덤 선택
       const selected =
         allKnowledge[Math.floor(Math.random() * allKnowledge.length)];
 
       console.log(
-        `Selected knowledge from ${allKnowledge.length} options (${dbKnowledge.length} from DB)`
+        `Selected knowledge from ${allKnowledge.length} options`
       );
 
       setCurrentKnowledge(selected);
-      setTimeLeft(GAME_CONFIG.READING_TIME);
-      setGamePhase("reading");
+      setGamePhase("intro-reading");
     } catch (error) {
       console.error("Error fetching knowledge:", error);
-      // 실패 시 시드 지식으로 폴백
-      const fallback = getRandomKnowledge(category);
-      setCurrentKnowledge(fallback);
-      setTimeLeft(GAME_CONFIG.READING_TIME);
-      setGamePhase("reading");
+      alert("지식을 불러오는데 실패했습니다.");
+      setGamePhase("category");
     }
+  };
+
+  // 읽기 단계 시작
+  const startReading = () => {
+    setTimeLeft(GAME_CONFIG.READING_TIME);
+    setGamePhase("reading");
+  };
+
+  // 채팅 단계 시작
+  const startChatting = () => {
+    setTimeLeft(GAME_CONFIG.CHATTING_TIME);
+    setGamePhase("chatting");
+    sendBotGreeting();
   };
 
   // 메시지 전송
@@ -284,29 +289,29 @@ export default function Home() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-8">
         <div className="text-center max-w-2xl">
-          <h1 className="text-5xl font-bold text-[var(--secondary)] mb-4 quiz-title">
-            📚 Knowledge History
+          <h1 className="text-4xl font-semibold text-[var(--secondary)] mb-4 quiz-title">
+            Knowledge History
           </h1>
-          <p className="text-xl text-[var(--accent)] mb-2">지식 계보 게임</p>
-          <p className="text-lg text-gray-600 mb-8 leading-relaxed">
-            가상의 지식을 AI에게 설명하고,
+          <p className="text-lg text-[var(--accent)] mb-2">지식 계보 게임</p>
+          <p className="text-base text-gray-500 mb-10 leading-relaxed">
+            지식을 AI에게 설명하고,
             <br />
-            새롭게 탄생하는 지식을 확인하세요!
+            새롭게 탄생하는 지식의 흐름을 확인하세요.
           </p>
 
           <button
             onClick={startGame}
-            className="btn-gold px-12 py-4 text-xl mb-6"
+            className="btn-gold px-10 py-3 text-base mb-6"
           >
-            🎮 게임 시작
+            시작하기
           </button>
 
           <div className="mt-8">
             <a
               href="/history"
-              className="text-[var(--secondary)] underline hover:text-[var(--primary)]"
+              className="text-[var(--muted)] hover:text-[var(--secondary)] transition-colors"
             >
-              📖 지식 계보 보기
+              지식 계보 보기 →
             </a>
           </div>
         </div>
@@ -319,13 +324,11 @@ export default function Home() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-8">
         <div className="text-center">
-          <div className="text-6xl mb-6 animate-bounce">📚</div>
-          <h2 className="text-2xl font-bold text-[var(--secondary)] mb-4">
-            지식을 찾고 있어요...
+          <div className="w-8 h-8 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin mx-auto mb-6"></div>
+          <h2 className="text-xl font-medium text-[var(--secondary)] mb-2">
+            지식을 불러오는 중
           </h2>
-          <p className="text-gray-500">
-            DB에서 흥미로운 지식을 가져오는 중입니다
-          </p>
+          <p className="text-sm text-gray-400">잠시만 기다려주세요</p>
         </div>
       </div>
     );
@@ -335,8 +338,8 @@ export default function Home() {
   if (gamePhase === "category") {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-8">
-        <h2 className="text-3xl font-bold text-[var(--secondary)] mb-8">
-          주제를 선택하세요
+        <h2 className="text-2xl font-medium text-[var(--secondary)] mb-8">
+          주제 선택
         </h2>
 
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-w-3xl">
@@ -362,6 +365,47 @@ export default function Home() {
         >
           ← 돌아가기
         </button>
+      </div>
+    );
+  }
+
+  // 읽기 단계 설명 화면
+  if (gamePhase === "intro-reading" && currentKnowledge) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-8">
+        <div className="max-w-lg text-center">
+          <p className="text-sm text-[var(--muted)] mb-2">STEP 1</p>
+          <h2 className="text-2xl font-medium text-[var(--secondary)] mb-8">
+            지식 읽기
+          </h2>
+
+          <div className="bg-[var(--paper)] border border-gray-200 rounded-lg p-6 mb-8 text-left">
+            <ul className="space-y-3 text-gray-600 text-sm">
+              <li className="flex items-start gap-3">
+                <span className="text-[var(--primary)] mt-0.5">1</span>
+                <span>화면에 지식이 표시됩니다</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="text-[var(--primary)] mt-0.5">2</span>
+                <span>
+                  <strong>{GAME_CONFIG.READING_TIME}초</strong> 동안 내용을 읽고
+                  기억하세요
+                </span>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="text-[var(--primary)] mt-0.5">3</span>
+                <span>다음 단계에서 AI에게 이 내용을 설명합니다</span>
+              </li>
+            </ul>
+          </div>
+
+          <button
+            onClick={startReading}
+            className="btn-gold px-10 py-3 text-base"
+          >
+            시작
+          </button>
+        </div>
       </div>
     );
   }
@@ -399,9 +443,52 @@ export default function Home() {
             </div>
           </div>
 
-          <p className="text-center text-gray-500 mt-6">
-            ⏳ 시간이 지나면 자동으로 채팅이 시작됩니다
+          <p className="text-center text-sm text-gray-400 mt-6">
+            시간이 지나면 자동으로 다음 단계로 넘어갑니다
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  // 채팅 단계 설명 화면
+  if (gamePhase === "intro-chatting" && currentKnowledge) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-8">
+        <div className="max-w-lg text-center">
+          <p className="text-sm text-[var(--muted)] mb-2">STEP 2</p>
+          <h2 className="text-2xl font-medium text-[var(--secondary)] mb-8">
+            AI에게 설명하기
+          </h2>
+
+          <div className="bg-[var(--paper)] border border-gray-200 rounded-lg p-6 mb-8 text-left">
+            <ul className="space-y-3 text-gray-600 text-sm">
+              <li className="flex items-start gap-3">
+                <span className="text-[var(--primary)] mt-0.5">1</span>
+                <span>AI가 방금 읽은 지식에 대해 질문합니다</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="text-[var(--primary)] mt-0.5">2</span>
+                <span>
+                  <strong>{GAME_CONFIG.CHATTING_TIME}초</strong> 동안 기억한
+                  내용을 설명하세요
+                </span>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="text-[var(--primary)] mt-0.5">3</span>
+                <span>
+                  AI는 원본 지식을 모릅니다. 당신의 설명만이 유일한 정보입니다.
+                </span>
+              </li>
+            </ul>
+          </div>
+
+          <button
+            onClick={startChatting}
+            className="btn-gold px-10 py-3 text-base"
+          >
+            시작
+          </button>
         </div>
       </div>
     );
@@ -492,12 +579,12 @@ export default function Home() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-8">
         <div className="text-center">
-          <div className="text-6xl mb-6 loading-book">📖</div>
-          <h2 className="text-2xl font-bold text-[var(--secondary)] mb-4">
-            새로운 지식 생성 중...
+          <div className="w-8 h-8 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin mx-auto mb-6"></div>
+          <h2 className="text-xl font-medium text-[var(--secondary)] mb-2">
+            새로운 지식 생성 중
           </h2>
-          <p className="text-gray-500">
-            AI가 당신의 설명을 바탕으로 새로운 지식을 만들고 있습니다
+          <p className="text-sm text-gray-400">
+            AI가 설명을 바탕으로 새로운 지식을 만들고 있습니다
           </p>
         </div>
       </div>
@@ -508,46 +595,48 @@ export default function Home() {
   if (gamePhase === "result" && currentKnowledge && generatedKnowledge) {
     return (
       <div className="min-h-screen p-4 md:p-8">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="text-3xl font-bold text-center text-[var(--secondary)] mb-8">
-            🎉 새로운 지식이 탄생했습니다!
+        <div className="max-w-4xl mx-auto">
+          <h2 className="text-2xl font-medium text-center text-[var(--secondary)] mb-8">
+            새로운 지식이 탄생했습니다
           </h2>
 
-          <div className="grid md:grid-cols-2 gap-8">
+          <div className="grid md:grid-cols-2 gap-6">
             {/* 원본 지식 */}
             <div className="encyclopedia-page">
-              <p className="text-sm text-gray-500 mb-2">📜 원본 지식</p>
-              <h3 className="text-xl font-bold text-[var(--secondary)] mb-4">
+              <p className="text-xs text-[var(--muted)] mb-3 uppercase tracking-wide">
+                원본
+              </p>
+              <h3 className="text-lg font-medium text-[var(--secondary)] mb-3">
                 {currentKnowledge.title}
               </h3>
-              <p className="encyclopedia-text text-sm">
+              <p className="encyclopedia-text text-sm text-gray-600">
                 {currentKnowledge.description}
               </p>
             </div>
 
             {/* 새 지식 */}
-            <div className="encyclopedia-page border-[var(--primary)]">
-              <p className="text-sm text-[var(--primary)] mb-2">
-                ✨ 새로 탄생한 지식
+            <div className="encyclopedia-page border-l-2 border-l-[var(--primary)]">
+              <p className="text-xs text-[var(--primary)] mb-3 uppercase tracking-wide">
+                새로운 지식
               </p>
-              <h3 className="text-xl font-bold text-[var(--secondary)] mb-4">
+              <h3 className="text-lg font-medium text-[var(--secondary)] mb-3">
                 {generatedKnowledge.title}
               </h3>
-              <p className="encyclopedia-text text-sm">
+              <p className="encyclopedia-text text-sm text-gray-600">
                 {generatedKnowledge.description}
               </p>
             </div>
           </div>
 
-          <div className="text-center mt-8 space-x-4">
+          <div className="text-center mt-10 space-x-4">
             <button onClick={resetGame} className="btn-gold px-8 py-3">
-              🔄 다시 하기
+              다시 하기
             </button>
             <a
               href="/history"
-              className="inline-block px-8 py-3 border-2 border-[var(--secondary)] text-[var(--secondary)] rounded-lg hover:bg-[var(--secondary)] hover:text-white transition-colors"
+              className="inline-block px-8 py-3 border border-gray-300 text-[var(--secondary)] rounded-lg hover:border-[var(--secondary)] transition-colors"
             >
-              📖 지식 계보 보기
+              지식 계보 보기
             </a>
           </div>
         </div>

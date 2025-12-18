@@ -132,32 +132,11 @@ You MUST respond in this EXACT JSON format (no other text, no markdown):
       console.error("JSON Parse Error:", parseError);
       console.error("Failed to parse:", reply);
 
-      // 파싱 실패 시 채팅 내용을 바탕으로 기본 지식 생성
-      const userMessages = chatLog
-        .filter((msg) => msg.role === "user")
-        .map((msg) => msg.content)
-        .join(" ");
-
-      const newKnowledge: Knowledge = {
-        id: `gen-${Date.now()}`,
-        title: "불완전하게 전해진 지식",
-        category: originalKnowledge.category,
-        description: `대화를 통해 다음과 같은 내용이 전달되었다:\n\n"${userMessages.slice(
-          0,
-          200
-        )}${
-          userMessages.length > 200 ? "..." : ""
-        }"\n\n그러나 이 지식은 완전히 정리되지 못한 채로 기록되었다.`,
-        parentId: originalKnowledge.id,
-        generation: originalKnowledge.generation + 1,
-        createdAt: new Date().toISOString(),
-        createdBy: "session-fallback",
-        chatLog: chatLog,
-        timesShown: 0,
-        childrenCount: 0,
-      };
-
-      return NextResponse.json({ knowledge: newKnowledge });
+      // 파싱 실패 시 에러 반환 (불완전한 지식은 저장하지 않음)
+      return NextResponse.json(
+        { error: "AI 응답 파싱에 실패했습니다. 다시 시도해주세요." },
+        { status: 500 }
+      );
     }
   } catch (error) {
     console.error("Knowledge Generation Error:", error);

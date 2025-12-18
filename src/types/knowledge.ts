@@ -52,7 +52,9 @@ export type GamePhase =
   | "main" // 메인 화면
   | "category" // 주제 선택
   | "loading" // 지식 로딩 중
+  | "intro-reading" // 읽기 단계 설명
   | "reading" // 지식 읽기 (20초)
+  | "intro-chatting" // 채팅 단계 설명
   | "chatting" // 채팅 (1분)
   | "generating" // 새 지식 생성 중
   | "result"; // 결과 화면
